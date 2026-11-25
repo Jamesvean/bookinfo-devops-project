@@ -4,117 +4,108 @@ pipeline {
 
     options {
         timestamps()
-        timeout(time: 15, unit: 'MINUTES')
         disableConcurrentBuilds()
+        timeout(time: 20, unit: 'MINUTES')
+        skipDefaultCheckout(true)
+        buildDiscarder(logRotator(numToKeepStr: '10'))
     }
 
     environment {
-        K8S_NAMESPACE = 'bookinfo'
-        K8S_SERVER = 'https://127.0.0.1:6443'
-        K8S_CA = '/etc/jenkins/bookinfo-ca.crt'
+        KUBE_NAMESPACE = 'bookinfo'
+        KUBE_SERVER = 'https://127.0.0.1:6443'
+        KUBE_CA = '/etc/jenkins/bookinfo-ca.crt'
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        stage('Validate and Deploy') {
+        stage('Validate Environment') {
+            steps {
+                sh '''
+                    set -eu
+
+                    echo "Checking required tools..."
+
+                    command -v kubectl
+                    command -v bash
+                    command -v curl
+
+                    kubectl version --client
+
+                    test -f kubernetes/bookinfo.yaml
+                    test -f scripts/deploy.sh
+                    test -r "$KUBE_CA"
+
+                    bash -n scripts/deploy.sh
+
+                    echo "Environment validation successful."
+                '''
+            }
+        }
+
+        stage('Deploy Bookinfo') {
             steps {
                 withCredentials([
                     string(
                         credentialsId: 'bookinfo-k8s-token',
-                        variable: 'K8S_TOKEN'
+                        variable: 'KUBE_TOKEN'
                     )
                 ]) {
                     sh '''
+                        set +x
                         set -eu
 
-                        export KUBECONFIG
-                        KUBECONFIG=$(mktemp)
+                        export KUBECONFIG="$(mktemp)"
+
                         chmod 600 "$KUBECONFIG"
 
-                        PF_PID=""
+                        trap 'rm -f "$KUBECONFIG"' EXIT
 
-                        cleanup() {
-                            if [ -n "$PF_PID" ]; then
-                                kill "$PF_PID" 2>/dev/null || true
-                            fi
-                            rm -f "$KUBECONFIG"
-                        }
-                        trap cleanup EXIT
-
-                        kubectl config set-cluster bookinfo-k3s \
-                          --server="$K8S_SERVER" \
-                          --certificate-authority="$K8S_CA" \
-                          --embed-certs=true
+                        kubectl config set-cluster bookinfo-cluster \
+                            --server="$KUBE_SERVER" \
+                            --certificate-authority="$KUBE_CA" \
+                            --embed-certs=true
 
                         kubectl config set-credentials jenkins-deployer \
-                          --token="$K8S_TOKEN"
+                            --token="$KUBE_TOKEN"
 
-                        kubectl config set-context bookinfo \
-                          --cluster=bookinfo-k3s \
-                          --user=jenkins-deployer \
-                          --namespace="$K8S_NAMESPACE"
+                        kubectl config set-context bookinfo-context \
+                            --cluster=bookinfo-cluster \
+                            --user=jenkins-deployer \
+                            --namespace="$KUBE_NAMESPACE"
 
-                        kubectl config use-context bookinfo
+                        kubectl config use-context bookinfo-context
 
-                        echo "Validating manifests..."
-                        kubectl apply --dry-run=server \
-                          -f kubernetes/bookinfo.yaml
+                        echo "Starting automated deployment..."
 
-                        echo "Deploying Bookinfo..."
-                        kubectl apply -f kubernetes/bookinfo.yaml
-
-                        echo "Checking rollouts..."
-                        for deployment in \
-                          details-v1 ratings-v1 \
-                          reviews-v1 reviews-v2 reviews-v3 \
-                          productpage-v1
-                        do
-                          kubectl rollout status \
-                            deployment/"$deployment" \
-                            --timeout=180s
-                        done
-
-                        echo "Starting application smoke test..."
-                        kubectl port-forward \
-                          svc/productpage 19080:9080 \
-                          > /tmp/bookinfo-port-forward-$$.log 2>&1 &
-                        PF_PID=$!
-
-                        SUCCESS=0
-                        for attempt in $(seq 1 15); do
-                            if curl --fail --silent --show-error \
-                              --max-time 10 \
-                              http://127.0.0.1:19080/productpage \
-                              -o /dev/null; then
-                                SUCCESS=1
-                                break
-                            fi
-                            sleep 2
-                        done
-
-                        if [ "$SUCCESS" -ne 1 ]; then
-                            echo "Smoke test failed"
-                            exit 1
-                        fi
-
-                        echo "Bookinfo deployment successful!"
+                        bash scripts/deploy.sh
                     '''
                 }
             }
         }
+
     }
 
     post {
+
         success {
-            echo 'Bookinfo CI/CD pipeline completed successfully.'
+            echo 'Bookinfo CI/CD pipeline completed successfully!'
+            echo 'Deployment and smoke tests passed.'
         }
+
         failure {
-            echo 'Bookinfo CI/CD pipeline failed. Review console output.'
+            echo 'Bookinfo deployment pipeline failed.'
+            echo 'Check deployment and rollback logs.'
+        }
+
+        always {
+            echo 'Pipeline execution completed.'
         }
     }
 }
+
