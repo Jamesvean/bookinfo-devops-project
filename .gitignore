@@ -1,0 +1,22 @@
+# Downloaded Istio distributions
+istio-*/
+
+# Logs and temporary files
+*.log
+*.tmp
+.DS_Store
+
+# Credentials and environment variables
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Terraform local files and state
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+crash.log
