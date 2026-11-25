@@ -322,7 +322,7 @@ spec:
       serviceAccountName: bookinfo-productpage
       containers:
       - name: productpage
-        image: registry.istio.io/release/examples-bookinfo-productpage-v1:1.20.3
+        image: registry.istio.io/release/examples-bookinfo-reviews-v1:invalid-test-version
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9080
