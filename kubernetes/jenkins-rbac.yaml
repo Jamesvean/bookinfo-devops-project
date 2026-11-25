@@ -3,6 +3,7 @@ kind: ServiceAccount
 metadata:
   name: jenkins-deployer
   namespace: bookinfo
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -10,15 +11,68 @@ metadata:
   name: jenkins-deployer
   namespace: bookinfo
 rules:
+
+  # Manage Bookinfo application resources
   - apiGroups: [""]
-    resources: ["services", "configmaps", "serviceaccounts"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    resources:
+      - services
+      - serviceaccounts
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+
+  # Manage Kubernetes deployments
   - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    resources:
+      - deployments
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+
+  # Read replica sets for deployment verification
+  - apiGroups: ["apps"]
+    resources:
+      - replicasets
+    verbs:
+      - get
+      - list
+      - watch
+
+  # Inspect application pods and service endpoints
   - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch"]
+    resources:
+      - pods
+      - endpoints
+      - events
+    verbs:
+      - get
+      - list
+      - watch
+
+  # Read application pod logs
+  - apiGroups: [""]
+    resources:
+      - pods/log
+    verbs:
+      - get
+
+  # Allow port forwarding for Jenkins smoke tests
+  - apiGroups: [""]
+    resources:
+      - pods/portforward
+    verbs:
+      - get
+      - create
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -30,6 +84,6 @@ subjects:
     name: jenkins-deployer
     namespace: bookinfo
 roleRef:
+  apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: jenkins-deployer
-  apiGroup: rbac.authorization.k8s.io
